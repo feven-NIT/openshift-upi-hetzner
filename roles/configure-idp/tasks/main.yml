@@ -1,0 +1,107 @@
+---
+  - name: Create an admin user 
+    htpasswd:
+      path: "/root/{{ cluster_name }}/auth/htpasswd"
+      name: admin
+      password: 'redhat'
+  
+  - name: get kubeadmin password
+    slurp:
+      src: /root/openshift/auth/kubeadmin-password
+    register: kubeadmin_password
+
+  - name: get htpasswd admin password
+    slurp:
+      src: /root/openshift/auth/htpasswd
+    register: admin_password
+
+  - name: print msg 
+    debug:
+      msg: "{{ admin_password['content'] | b64decode }}" 
+
+
+  - name: Log in (obtain access token)
+    community.okd.openshift_auth:
+      username: kubeadmin
+      password: "{{ kubeadmin_password['content'] | b64decode }}"
+      host: https://api.openshift.florian-hubsandbox.org:6443
+      validate_certs: no
+    register: openshift_auth_results
+
+  - name: print msg
+    debug:
+      msg: "{{ openshift_auth_results.openshift_auth.api_key }}"
+
+  - name: Create secret for admin account
+    vars: 
+      - htpasswd: "{{ admin_password['content'] }}"
+    kubernetes.core.k8s:
+      host: https://api.openshift.florian-hubsandbox.org:6443
+      validate_certs: no
+      api_key: "{{ openshift_auth_results.openshift_auth.api_key }}"
+      state: present
+      definition: 
+        apiVersion: v1
+        kind: Secret 
+        type: Opaque              
+        metadata:
+          name: htpasswd-auth
+          namespace: openshift-config    
+        data:
+          htpasswd: "{{ htpasswd }}"
+
+  - name: Create an Identity Provider 
+    kubernetes.core.k8s:
+      api_key: "{{ openshift_auth_results.openshift_auth.api_key }}"
+      host: https://api.openshift.florian-hubsandbox.org:6443
+      validate_certs: no
+      state: present
+      definition:
+        apiVersion: v1
+        kind: OAuth
+        metadata:
+          name: cluster
+        spec:
+          identityProviders:
+          - name: htpasswd_provider
+            mappingMethod: claim
+            type: HTPasswd
+            htpasswd:
+              fileData:
+                name: htpasswd-auth
+    
+  - name: Add role Admin to user admin
+    kubernetes.core.k8s:
+      api_key: "{{ openshift_auth_results.openshift_auth.api_key }}"
+      host: https://api.openshift.florian-hubsandbox.org:6443
+      validate_certs: no
+      state: present
+      definition:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: admin
+        roleRef:
+          kind: ClusterRole
+          name: cluster-admin
+          apiGroup: rbac.authorization.k8s.io
+        subjects:
+        - kind: User
+          name: admin
+          apiGroup: rbac.authorization.k8s.io
+
+  - name: Delete kube-admin account
+    vars:
+      - htpasswd: "{{ admin_password['content'] }}"
+    kubernetes.core.k8s:
+      api_key: "{{ openshift_auth_results.openshift_auth.api_key }}"
+      host: https://api.openshift.florian-hubsandbox.org:6443
+      validate_certs: no
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: kubeadmin
+          namespace: kube-system 
+

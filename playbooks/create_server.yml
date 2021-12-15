@@ -1,0 +1,12 @@
+---
+- name: Create Basic Server
+  hosts: localhost
+  vars_files:
+    - ../inventory/inventory.yml
+    - ../auth/hcloud.yml
+  vars:
+    hcloud_token: "{{ token }}"
+  roles:
+    - ../roles/create_server 
+
+

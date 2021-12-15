@@ -1,0 +1,167 @@
+state_cluster: present
+state_worker: present
+state_master: present
+state_bootstrap: present
+state_bastion: present
+state_lb: present
+image: fedora-34
+
+ssh_keys:
+  - ocp-key
+
+hetzner_server:
+
+  - name: bastion
+    type: cx11
+    image: "{{ image }}"
+    location: fsn1
+    ssh_key: "{{ ssh_keys }}"
+    labels:
+      app: bastion
+    state: "{{ state_bastion }}"
+
+  - name: bootstrap
+    type: cx41
+    image: "{{ image }}"
+    location: fsn1
+    ssh_key: "{{ ssh_keys }}"
+    labels:
+      app: bootstrap
+      lb: api
+    state: "{{ state_bootstrap }}"
+
+  - name: master1
+    type: cx41
+    image: "{{ image }}"
+    location: fsn1
+    ssh_key: "{{ ssh_keys }}"
+    labels:
+      app: master
+      lb: api
+    state: "{{ state_master }}"
+
+  - name: master2               
+    type: cx41                  
+    image: "{{ image }}"       
+    location: fsn1
+    ssh_key: "{{ ssh_keys }}"
+    labels:
+      app: master
+      lb: api
+    state: "{{ state_master }}"
+
+  - name: master3
+    type: cx41
+    image: "{{ image }}"
+    location: fsn1
+    ssh_key: "{{ ssh_keys }}"
+    labels:
+      app: master
+      lb: api
+    state: "{{ state_master }}"
+
+  - name: worker1               
+    type: cx41                  
+    image: "{{ image }}"       
+    location: fsn1
+    ssh_key: "{{ ssh_keys }}"
+    labels:
+      app: worker
+      lb: ingress
+    state: "{{ state_worker }}"
+
+  - name: worker2              
+    type: cx41                  
+    image: "{{ image }}"       
+    location: fsn1
+    ssh_key: "{{ ssh_keys }}"
+    labels:
+      app: worker
+      lb: ingress
+    state: "{{ state_worker }}"
+
+
+  - name: worker3              
+    type: cx41                  
+    image: "{{ image }}"       
+    location: fsn1
+    ssh_key: "{{ ssh_keys }}"
+    labels:
+      app: worker
+      lb: ingress
+    state: "{{ state_worker }}"
+
+
+hetzner_volume:
+ 
+  - name: volume-bastion-1
+    size: 20
+    format: "xfs"
+    state: present
+    automount: no
+    server: bastion
+
+  - name: volume-worker1-2
+    size: 20
+    format: "ext4"
+    state: present
+    automount: yes
+    server: worker1
+
+  - name: volume-worker2-2
+    size: 20
+    format: "ext4"
+    state: present
+    automount: yes
+    server: worker2
+
+  - name: volume-worker3-2
+    size: 20
+    format: "ext4"
+    state: present
+    automount: yes
+    server: worker3
+
+
+    
+hetzner_loadbalancer:
+
+  - name: api_loadbalancer
+    type: lb11
+    location: fsn1
+    state: "{{ state_lb }}"
+    ssh_key: "{{ ssh_keys }}"
+    selector: lb = api
+    labels:
+      app: api_loadbalancer
+
+  - name: ingress_loadbalancer
+    type: lb11
+    location: fsn1
+    state: "{{ state_lb }}"
+    ssh_key: "{{ ssh_keys }}"
+    selector: lb = ingress
+    labels:
+      app: ingress_loadbalancer
+
+hetzner_services:
+    
+  - loadbalancer: api_loadbalancer
+    port: 6443
+    protocol: tcp
+    state: present
+
+  - loadbalancer: api_loadbalancer
+    port: 22623
+    protocol: tcp
+    state: present
+    
+  - loadbalancer: ingress_loadbalancer    
+    port: 80
+    protocol: tcp
+    state: present
+   
+  - loadbalancer: ingress_loadbalancer
+    port: 443
+    protocol: tcp
+    state: present 

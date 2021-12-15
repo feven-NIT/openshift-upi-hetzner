@@ -1,0 +1,80 @@
+- name: Create disk for hostpath
+  hosts: localhost
+  gather_facts: no
+  tasks:
+  - name: Create raw image
+    command: "qemu-img create -f raw /var/lib/libvirt/images/pvdata.img 10G"
+    args:
+      creates: "/var/lib/libvirt/images/pvdata.img"
+    register: hostpath_disk
+  - name: Add new disk to node01 as vdc
+    command: virsh attach-disk node01 --source /var/lib/libvirt/images/pvdata.img --persistent --target vdc
+    when: hostpath_disk.changed
+
+- name: Create pv directories
+  hosts: node01
+  gather_facts: no
+  tasks:
+  - name: Create file system for hostpath mount
+    filesystem:
+      fstype: xfs
+      dev: /dev/vdc
+  - name: Create mount point
+    file:
+      path: "{{hostpath_dir}}"
+      state: directory
+      owner: nfsnobody
+      group: nfsnobody
+      mode: 0777
+  - name: Mount new disk to mount point
+    mount:
+      path: "{{hostpath_dir}}"
+      src: /dev/vdc
+      fstype: xfs
+      state: mounted
+  - name: Create directories
+    file:
+      path: "{{hostpath_dir}}/pv{{item}}"
+      state: directory
+      owner: nfsnobody
+      group: nfsnobody
+      mode: 0777
+    with_items:
+    - "{{hostpath_pv_names}}"
+    - "{{hostpath_dir}}"
+
+  - name: SELinux container_file_t
+    command: "chcon -Rt container_file_t {{hostpath_dir}}/pv{{item}}"
+    with_items:
+    - "{{hostpath_pv_names}}"
+    - "{{hostpath_dir}}"
+- hosts: master01
+  tasks:
+  - name: "Create dir for pv files"
+    file:
+      path: /tmp/pvs
+      state: directory
+  - name: "Create pv files"
+    copy:
+      dest: /tmp/pvs/pv{{item.0}}.yaml
+      content: |
+        apiVersion: v1
+        kind: PersistentVolume
+        metadata:
+          name: pv{{item.0}}
+        spec:
+          capacity:
+            storage: {{item.1}}
+          accessModes:
+            - ReadWriteOnce
+            - ReadWriteMany
+          persistentVolumeReclaimPolicy: Recycle
+          hostPath:
+            path: {{hostpath_dir}}/pv{{item.0}}
+    with_together:
+    - "{{hostpath_pv_names}}"
+    - "{{hostpath_pv_sizes}}"
+    register: pv_files
+  - name: "Create PVs"
+    command: "oc create -f /tmp/pvs/"
+    when: pv_files.changed

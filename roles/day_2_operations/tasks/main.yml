@@ -1,0 +1,98 @@
+---
+#Manage NFS server
+
+- name: install packages
+  yum:
+    name: 
+      - nfs-utils
+    state: latest
+
+- name: start service httpd, if not started
+  service:
+    name: nfs-utils
+    state: started
+
+- name: Create nfs exports directory
+  file:
+    path: "/nfs-share"
+    state: directory
+    mode: 0777
+    
+#TODO replace /dev/sdb by variable 
+
+- name: Mount device with ID
+  mount:
+    path: /nfs-share
+    src: /dev/sdb
+    fstype: xfs
+    state: present 
+
+- name: Ensure required entries are made to hosts file 
+  lineinfile:
+    path: /etc/exports
+    state: present
+    line: "{{ item }}"
+    with_items:
+      - '/nfs-share  *(rw,no_root_squash,no_subtree_check,insecure)' 
+
+- name: Re-export the share
+  command: exportfs -rav
+  
+#Configure the image registry with persistent storage 
+
+- name: Log in (obtain access token)
+  community.okd.openshift_auth:
+    username: admin
+    password: redhat
+    host: https://api.openshift.florian-hubsandbox.org:6443
+    validate_certs: no
+  register: openshift_auth_results
+
+- name: print msg
+  debug:
+    msg: "{{ openshift_auth_results.openshift_auth.api_key }}"
+
+- name: Create registry-nfs directory
+  file:
+    path: "/nfs-share/registry"
+    state: directory
+    mode: 0777
+ 
+- name: Create pv for registry 
+  kubernetes.core.k8s:
+    host: https://api.openshift.florian-hubsandbox.org:6443
+    validate_certs: no
+    api_key: "{{ openshift_auth_results.openshift_auth.api_key }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolume
+      metadata:
+        name: registry-pv
+      spec:
+        capacity:
+          storage: 5Gi
+        accessModes:
+        - ReadWriteMany
+        nfs:
+          path: /nfs-share/registry
+          server: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+        persistentVolumeReclaimPolicy: Recycle     
+
+- name: Create pvc for registry 
+  kubernetes.core.k8s:
+    host: https://api.openshift.florian-hubsandbox.org:6443
+    validate_certs: no
+    api_key: "{{ openshift_auth_results.openshift_auth.api_key }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeiClaim
+      metadata:
+        name: registry-claim
+      spec:
+        accessModes:
+          - ReadWriteMany
+        resources:
+          requests:
+            storage: 5Gi
